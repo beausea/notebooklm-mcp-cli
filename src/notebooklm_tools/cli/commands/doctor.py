@@ -301,7 +301,7 @@ def _check_clients(verbose: bool) -> bool:
 
     from notebooklm_tools.cli.commands.setup import (
         CLIENT_REGISTRY,
-        _cursor_config_path,
+        _find_cursor_configured_path,
         _gemini_config_path,
         _is_configured,
         _read_json_config,
@@ -345,9 +345,7 @@ def _check_clients(verbose: bool) -> bool:
             status = _is_configured(config, "notebooklm")
 
         elif client_id == "cursor":
-            path = _cursor_config_path()
-            config = _read_json_config(path)
-            status = _is_configured(config)
+            status = _find_cursor_configured_path() is not None
 
         elif client_id == "windsurf":
             path = _windsurf_config_path()

@@ -103,19 +103,51 @@ def _gemini_config_path() -> Path:
     return Path.home() / ".gemini" / "settings.json"
 
 
-def _cursor_config_path(level: str = "user") -> Path:
-    """Get Cursor MCP config path."""
+def _cursor_canonical_config_path(level: str = "user") -> Path:
+    """Canonical Cursor MCP path per Cursor docs (~/.cursor/mcp.json)."""
     if level == "project":
         return Path(".cursor") / "mcp.json"
-    # User-level
+    return Path.home() / ".cursor" / "mcp.json"
+
+
+def _cursor_config_candidates(level: str = "user") -> list[Path]:
+    """Known Cursor MCP config paths, most preferred first.
+
+    Cursor documents ~/.cursor/mcp.json as the global config. Older setups
+    and other tools may have used platform-specific legacy paths.
+    """
+    if level == "project":
+        return [Path(".cursor") / "mcp.json"]
+
+    candidates = [_cursor_canonical_config_path(level)]
     system = platform.system()
-    if system == "Darwin":
-        return Path.home() / ".cursor" / "mcp.json"
-    elif system == "Windows":
+    if system == "Windows":
         appdata = Path(os.environ.get("APPDATA", ""))
-        return appdata / "Cursor" / "User" / "mcp.json"
-    else:
-        return Path.home() / ".config" / "cursor" / "mcp.json"
+        if appdata:
+            candidates.append(appdata / "Cursor" / "User" / "mcp.json")
+    elif system == "Linux":
+        candidates.append(Path.home() / ".config" / "cursor" / "mcp.json")
+    return candidates
+
+
+def _cursor_config_path(level: str = "user") -> Path:
+    """Pick the Cursor MCP config file to read/write.
+
+    Returns the first existing candidate (canonical first). If none exist,
+    returns the canonical path for new installations.
+    """
+    for path in _cursor_config_candidates(level):
+        if path.exists():
+            return path
+    return _cursor_canonical_config_path(level)
+
+
+def _find_cursor_configured_path(level: str = "user") -> Optional[Path]:
+    """Return the path where NotebookLM MCP is configured, if any."""
+    for path in _cursor_config_candidates(level):
+        if _is_configured(_read_json_config(path)):
+            return path
+    return None
 
 
 def _windsurf_config_path() -> Path:
@@ -303,13 +335,14 @@ def _setup_github_copilot() -> bool:
 
 def _setup_cursor(level: str = "user") -> bool:
     """Add MCP to Cursor config."""
-    config_path = _cursor_config_path(level)
-    config = _read_json_config(config_path)
-
-    if _is_configured(config):
+    existing = _find_cursor_configured_path(level)
+    if existing:
         console.print(f"[green]✓[/green] Already configured in Cursor ({level})")
+        console.print(f"  [dim]{existing}[/dim]")
         return True
 
+    config_path = _cursor_config_path(level)
+    config = _read_json_config(config_path)
     _add_mcp_server(config)
     _write_json_config(config_path, config)
     console.print(f"[green]✓[/green] Added to Cursor ({level})")
@@ -975,6 +1008,27 @@ def _remove_single(client: str) -> bool:
         console.print("[dim]NotebookLM MCP was not configured in GitHub Copilot.[/dim]")
         return False
 
+    if client == "cursor":
+        removed_any = False
+        for config_path in _cursor_config_candidates():
+            if not config_path.exists():
+                continue
+            config = _read_json_config(config_path)
+            servers = config.get("mcpServers", {})
+            removed = False
+            for key in ["notebooklm-mcp", "notebooklm"]:
+                if key in servers:
+                    del servers[key]
+                    removed = True
+            if removed:
+                _write_json_config(config_path, config)
+                console.print(f"[green]✓[/green] Removed from {CLIENT_REGISTRY[client]['name']}")
+                console.print(f"  [dim]{config_path}[/dim]")
+                removed_any = True
+        if not removed_any:
+            console.print(f"[dim]NotebookLM MCP was not configured in {CLIENT_REGISTRY[client]['name']}.[/dim]")
+        return
+
     # JSON config-based clients
     config_paths = {
         "gemini": _gemini_config_path(),
@@ -1109,11 +1163,13 @@ def setup_list() -> None:
             config_path = str(path)
 
         elif client_id == "cursor":
-            path = _cursor_config_path()
-            config = _read_json_config(path)
-            if _is_configured(config):
+            configured_path = _find_cursor_configured_path()
+            if configured_path:
                 status = "[green]✓[/green]"
-            config_path = str(path).replace(str(Path.home()), "~")
+                config_path = str(configured_path).replace(str(Path.home()), "~")
+            else:
+                path = _cursor_config_path()
+                config_path = str(path).replace(str(Path.home()), "~")
 
         elif client_id == "windsurf":
             path = _windsurf_config_path()

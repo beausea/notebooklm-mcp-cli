@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Cursor MCP setup path on Windows** — `nlm setup add cursor` wrote to `%APPDATA%\Cursor\User\mcp.json` instead of the documented `~/.cursor/mcp.json`. Setup now defaults to the canonical path per [Cursor MCP docs](https://cursor.com/docs/context/mcp), detects existing config files in known legacy locations, and checks all candidates for add/remove/list/doctor.
+
 ## [0.7.6] - 2026-06-16
 
 ### Added
